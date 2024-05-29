@@ -1,0 +1,48 @@
+{
+    "reference_cell_fanout" : 100, 
+    "tie_cell_fanout" : 10,
+    "reference_cells" : ["ECL_Reference", "ECL_Voltage_Reference"],
+    "tie_cells"       : ["ECL_Tie_Hi", "ECL_Tie_Lo"],
+    "custom_cell_map" :{
+        "ECL_AND" : "ECL_AND_2",
+        "ECL_OR"  : "ECL_OR",
+        "ECL_XOR" : "ECL_XOR",
+        "ECL_INV" : "ECL_INV",
+        "ECL_DFFSR" : "ECL_DFFSR",
+        "ECL_MUX21" : "ECL_MUX21",
+        "ECL_Reference" : "ECL_Reference",
+        "ECL_Voltage_Reference" : "ECL_Voltage_Reference",
+        "ECL_Tie_Hi" : "ECL_Tie_Hi",
+        "ECL_Tie_Lo" : "ECL_Tie_Lo"
+    },
+    "port_compliments" : {
+        "ECL_AND" : {
+            "A" :  "NOTA",
+            "B" :   "NOTB",
+            "AND" : "NAND"
+        },
+        "ECL_OR" : {
+            "OR" : "NOR"
+        },
+        "ECL_XOR" : {
+            "A" :  "NOTA",
+            "B" :  "NOTB",
+            "XOR" : "XNOR"
+        },
+        "ECL_INV" : {
+            "IN" : "REF",
+            "INV" : "BUF"
+        },
+        "ECL_DFFSR" : {
+            "CLK" : "CLKBAR",
+            "D"   : "DBAR",
+            "Q"   : "QBAR"
+        },
+        "ECL_MUX21" : {
+            "A" : "NOTA",
+            "B" : "NOTB",
+            "OUT" : "OUTBAR",
+            "S" : "SBAR"
+        }
+    }
+}
