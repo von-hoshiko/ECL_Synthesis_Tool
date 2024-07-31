@@ -55,10 +55,12 @@ class cell:
                 ports[index] = pair.split()[0][1:]
                 nets[index] = pair.split()[1].strip("()")                
             self.cell_ports = {key:val for (key,val) in zip(ports, nets)}
-            if "UNCONNECTED" in self.cell_ports["Q"]: 
-                self.cell_ports["Q"] = invert_net(self.cell_ports["QBAR"])
-            elif "UNCONNECTED" in self.cell_ports["QBAR"]: 
-                self.cell_ports["QBAR"] = invert_net(self.cell_ports["Q"])
+
+            # if "UNCONNECTED" in self.cell_ports["Q"]: 
+            #     self.cell_ports["Q"] = invert_net(self.cell_ports["QBAR"])
+            # elif "UNCONNECTED" in self.cell_ports["QBAR"]: 
+            #     self.cell_ports["QBAR"] = invert_net(self.cell_ports["Q"])
+            self.cell_ports["QBAR"] = invert_net(self.cell_ports["Q"])
 
             self.cell_ports["DBAR"] = invert_net(self.cell_ports["D"])
             if "'b" in self.cell_ports["D"]:
@@ -835,8 +837,10 @@ def main():
 
 
     
+    # pwd_dir = os.getcwd()
     pnr_file = "script_{}_pnr{}".format(open_file[open_file.rfind('/')+1:-2], open_file[-2:])
-    test_file = "test_out_2.v"
+    
+    # test_file = "test_out_2.v"
 #    with open(open_file, "r") as orig_file_obj:
         #with open("script_" + open_file[:-2] + "_pnr" + open_file[-2:], "a") as new_file:
 #        line_holder = []
@@ -862,7 +866,7 @@ def main():
 
     # c1 = cell()
     # c1.fill_cell(" ".join(orig_lines_list[20]))
-    write_module_2(test_file ,orig_lines_list)
+    write_module_2(pnr_file ,orig_lines_list)
 
     exit()
     
