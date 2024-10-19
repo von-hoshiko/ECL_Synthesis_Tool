@@ -4,6 +4,7 @@ from pprint import pprint
 import re
 import json
 from math import ceil
+import glob
 
 # invert_affix = "_bar"
 invert_affix = "_bar"
@@ -60,7 +61,10 @@ class cell:
             #     self.cell_ports["Q"] = invert_net(self.cell_ports["QBAR"])
             # elif "UNCONNECTED" in self.cell_ports["QBAR"]: 
             #     self.cell_ports["QBAR"] = invert_net(self.cell_ports["Q"])
-            self.cell_ports["QBAR"] = invert_net(self.cell_ports["Q"])
+            if "UNCONNECTED" not in self.cell_ports["Q"]:
+                self.cell_ports["QBAR"] = invert_net(self.cell_ports["Q"])
+            else:
+                self.cell_ports["Q"] = invert_net(self.cell_ports["QBAR"])
 
             self.cell_ports["DBAR"] = invert_net(self.cell_ports["D"])
             if "'b" in self.cell_ports["D"]:
@@ -115,7 +119,8 @@ class cell:
     def create_param_str(self):
         p_str = []
         for port, net in self.cell_ports.items():
-            pair = ".{} ({})".format(port, net)
+            #space added before ")" for cases where a net is of the case "\net_name[0] "
+            pair = ".{} ({} )".format(port, net)
             p_str.append(pair)
             
         return "({})".format(", ".join(p_str))
@@ -137,6 +142,9 @@ def invert_net(net: str) -> str:
         else:
             netbar = "{}{}".format(net, invert_affix)
     return netbar
+
+def replace_assigns(assign_tup: tuple) -> str:
+    
 
 def create_special_cells() -> list:
     global total_gates
@@ -172,12 +180,16 @@ def create_special_cells() -> list:
 
     return [special_list, num_voltage_ref + num_tie_cells, special_net_list]
 
-def parse_assign(line: str) -> tuple:
+def parse_assign(line: str) -> tuple: 
+    # When given a line with format "assign net1 = net2;"
+    # returns a tuple (net1,net2)
     split_str = line.split()
     return (split_str[1], split_str[3][:-1])
     pass
 
 def get_assign_compliments(group_assign: list) -> list:
+    # creates a list of tuples containing assigned nets
+    # Ex: [(net1, net2), (net1_bar, net2_bar), ... , (net(N), net(N+1)), (net(N)_bar, net(N+1)_bar)]
     global num_tie
     assign_list = []
     for pair in group_assign:
@@ -185,7 +197,7 @@ def get_assign_compliments(group_assign: list) -> list:
         # assign_list.append("assign {} = {}".format(invert_net(pair[0]), invert_net(pair[1])))
         assign_list.append((pair[0], pair[1]))
         assign_list.append((invert_net(pair[0]), invert_net(pair[1])))
-        if "'b" in pair[1]: num_tie += 2
+        if "'b" in pair[1]: num_tie += 2 #increments number of tied nets 
     
     # for i in assign_list: print(i)
     # exit()
@@ -243,13 +255,12 @@ def get_default_config():
     }
     return default_config   
 
-def group_statements(statement_list: list, tot_num_gates: int, num_or_gates: int) -> list:
+def group_statements(file_name: str,statement_list: list, tot_num_gates: int, num_or_gates: int) -> list:
     # global total_gates
     # global total_or_gates
     # checks if we have started the module
     module_start = False
-    with open(open_file, "r") as orig_file_obj:
-        #with open("script_" + open_file[:-2] + "_pnr" + open_file[-2:], "a") as new_file:
+    with open(file_name, "r") as orig_file_obj:
         line_holder = []
         for line in orig_file_obj:
             if "module" in line: 
@@ -663,6 +674,9 @@ def write_module(file_name, module_lines: list, gate_count: int, or_count: int, 
     write_module(file_name, module_lines, (gate_count + current_gate_num + (100 - current_gate_num%100)),(or_count + or_gate_num + (100 - or_gate_num%100)), module_num+1)
 
 def write_module_2(file_name, lines: list):
+    global num_tie
+    global total_gates
+    global total_or_gates
     new_lines_list = []
     group_io = []
     group_wire = []
@@ -689,7 +703,7 @@ def write_module_2(file_name, lines: list):
             new_line = parse_io_and_wires(element)
             group_io.append(new_line)            
         elif element.startswith("assign"):
-            group_assign.append(parse_assign(element))
+            group_assign.append((element))
             pass
         elif element.startswith("wire"):
             group_wire.append(element)
@@ -722,7 +736,7 @@ def write_module_2(file_name, lines: list):
             assign_lines.append("assign {} = Hi_{};".format(pair[0], int(ti_hi_cnt/config["tie_cell_fanout"])))
             ti_hi_cnt += 1
         else:
-            assign_lines.append("assign {} = {}".format(pair[0], pair[1]))
+            assign_lines.append("assign {} = {};".format(pair[0], pair[1]))
 
     for i, inst in enumerate(cell_list):
         inst.cell_ports["CUR"] = "CUR_{}".format(int((i+special_cells[1])/config["reference_cell_fanout"]))
@@ -749,8 +763,66 @@ def write_module_2(file_name, lines: list):
         file.write(module_dec + "\n")
         file.write(new_line_str + "\n")
         file.write("endmodule")
-    # for i in new_lines_list: print(i)
-    exit()
+
+    total_gates = 0
+    total_or_gates = 0
+    num_tie = 0
+    # for i in new_lines_list: print(i)ls
+    
+
+def write_sdc(file_name: str, output_path: str):
+    orig_sdc_lines = []
+    output_file = "{}/script_{}_pnr{}".format(output_path, file_name[file_name.rfind('/')+1:-4], file_name[-4:])
+    with open(file_name, "r") as file:
+        orig_sdc_lines = file.readlines()
+    print(orig_sdc_lines)
+
+    net_pattern = re.compile(r'(\[get_ports\s*|get_clocks\s*|\"-name\s*\"|\-name\s*)({?[\w\[\]]+}?)')
+
+    with open(output_file, "w") as output_file:
+        for line in orig_sdc_lines:
+            # Write the original line first
+            output_file.write(line)
+            
+            # Check if the line contains a net, port, or clock command (e.g., get_ports, get_clocks, -name)
+            if "get_ports" in line or "get_clocks" in line or "-name" in line:
+                # Split the line into parts
+                parts = line.split()
+                modified_parts = parts[:]  # Make a copy of the original parts for modification
+
+                for i, part in enumerate(parts):
+                    if "get_ports" in part or "get_clocks" in part:
+                        # Modify the net/port/clock name after get_ports or get_clocks
+                        net_name_index = i + 1
+                        net_name = parts[net_name_index]
+
+                        # Check if the net has a bracket (e.g., i_ADDR[1])
+                        if "[" in net_name:
+                            # Insert _bar before the bracket
+                            modified_parts[net_name_index] = re.sub(r'(.*?)(\[.*\])', r'\1_bar\2', net_name)
+                        else:
+                            # Append _bar if no bracket is present
+                            modified_parts[net_name_index] = net_name[:-1] + "_bar" + ']'
+                    
+                    elif "-name" in part:
+                        # Modify the net/port/clock name after -name
+                        net_name_index = i + 1
+                        net_name = parts[net_name_index].strip('"')  # Remove quotes if present
+
+                        # Check if the net has a bracket (e.g., i_ADDR[1])
+                        if "[" in net_name:
+                            # Insert _bar before the bracket
+                            modified_parts[net_name_index] = '"' + re.sub(r'(.*?)(\[.*\])', r'\1_bar\2', net_name) + '"'
+                        else:
+                            # Append _bar if no bracket is present
+                            modified_parts[net_name_index] = '"' + net_name + "_bar" + '"'
+
+                # Reconstruct the modified line
+                modified_line = " ".join(modified_parts) + "\n"
+                
+                # Write the modified line after the original one
+                output_file.write(modified_line)
+    pass
     
 
             
@@ -803,14 +875,14 @@ def main():
 
     open_file = args[0]
 
-    if not os.path.isfile(open_file):
-        print("Did not input a valid file")
-        exit(1)
-    else:
-        print(open_file[-2:])
-        if open_file[-2:] != ".v":
-            print("Script expects a Verilog file (*.v)")
-            exit(1)
+    # if not os.path.isfile(open_file):
+    #     print("Did not input a valid file")
+    #     exit(1)
+    # else:
+    #     print(open_file[-2:])
+    #     if open_file[-2:] != ".v":
+    #         print("Script expects a Verilog file (*.v)")
+    #         exit(1)
 
     if len(args) == 2: #checking if we have a config file input
         json_file = args[1]
@@ -832,41 +904,31 @@ def main():
     # creating a map to handle custom cell names in the netlist which correspond to our normal ECL cells
     cell_map = {custom_cell : default_cell for default_cell, custom_cell in config["custom_cell_map"].items()} 
 
+    pwd_dir = os.getcwd()
+    netlist_path = os.path.join(pwd_dir,"outputs/netlist")
+    sdc_path = os.path.join(pwd_dir,"outputs/sdc")
+    os.makedirs(netlist_path, exist_ok= True)
+    os.makedirs(sdc_path, exist_ok= True)
 
-        
+    print(open_file)
+    for file_name in glob.iglob(os.path.join(open_file, '**/*.v'), recursive=True):
+        if os.path.isfile(file_name):
+            print(file_name)
+            pnr_file = "{}/script_{}_pnr{}".format(netlist_path, file_name[file_name.rfind('/')+1:-2], file_name[-2:])
+            print(pnr_file)
+            orig_lines_list = group_statements(file_name, orig_lines_list, total_gates, total_or_gates)
 
+            write_module_2(pnr_file ,orig_lines_list)
+            orig_lines_list = [] # clears previous files original lines
 
+    for file_name in glob.iglob(os.path.join(open_file, '**/*.sdc'), recursive=True):
+        if os.path.isfile(file_name):
+            write_sdc(file_name, sdc_path)
+
+            print(file_name)    
+
+    exit()
     
-    # pwd_dir = os.getcwd()
-    pnr_file = "script_{}_pnr{}".format(open_file[open_file.rfind('/')+1:-2], open_file[-2:])
-    
-    # test_file = "test_out_2.v"
-#    with open(open_file, "r") as orig_file_obj:
-        #with open("script_" + open_file[:-2] + "_pnr" + open_file[-2:], "a") as new_file:
-#        line_holder = []
-#        for line in orig_file_obj:
-#            if "module" in line: module_start = True
-#            if module_start:
-#                if line.strip().endswith(";"):
-#                    line_holder.append(line.strip())
-#                    orig_lines_list.append(line_holder.copy())
-                    #print(line_holder)
-                    #print("BALLLLS")
-#                    line_holder.clear()
-                    #statement_finish = True
-#                else:
-#                    line_holder.append(line.strip())
-#                line.strip() 
-            #print(line.rstrip())
-            #orig_lines_list.append(line.rstrip()) if line.strip().endswith(";") and module_start else "{} {}".format(orig_lines_list[-1], line.lstrip())
-        #pprint(group_statements(orig_lines_list))
-    orig_lines_list = group_statements(orig_lines_list, total_gates, total_or_gates)
-    # for line in orig_lines_list:
-    #     print(" ".join(line))
-
-    # c1 = cell()
-    # c1.fill_cell(" ".join(orig_lines_list[20]))
-    write_module_2(pnr_file ,orig_lines_list)
 
     exit()
     
