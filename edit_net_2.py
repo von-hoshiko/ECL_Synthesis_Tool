@@ -125,8 +125,9 @@ class cell:
             
         return "({})".format(", ".join(p_str))
     
-def invert_net(net: str) -> str:
+def invert_net(net: str) -> str: # We need to be able to go from (net -> net_bar) forwards and also from (net_bar->net) reversed
     global invert_affix
+    reverse = 0 # handles if we want to chop off invert_affix
     if "'b" in net:
         netbar = "{}{}".format(net[:-1], abs(int(net[-1]) - 1))
         # num_tie += 1
@@ -135,16 +136,29 @@ def invert_net(net: str) -> str:
 
         if "[" in net and net.endswith("]"): #checking if net has a specfied bitwidth
             net_bit_width = net[net.find("["):net.rfind("]")+1] #parsing the associated bitwidth for the current net
-            net = net[:net.find("[")]
+            net = net[:net.find("[")] #gets net name without bitwidth
+
+        if net[-1*len(invert_affix):] == invert_affix: reverse = 1
+
 
         if net_bit_width != "":
-            netbar = "{}{}{}".format(net, invert_affix, net_bit_width)
+            netbar = "{}{}{}".format(net, invert_affix, net_bit_width) if reverse == 0 else "{}{}".format(net[:-1*len(invert_affix)], net_bit_width)
         else:
-            netbar = "{}{}".format(net, invert_affix)
+            netbar = "{}{}".format(net, invert_affix) if reverse == 0 else net[:-1*len(invert_affix)]
     return netbar
 
-def replace_assigns(assign_tup: tuple) -> str:
-    
+def replace_assigns(assign_list: list) -> list: 
+    # This will replace an assign with an ECL_INV acting as a buffer
+    # assign_list is a list of tuples
+    # Return a list of single ended ECL_INV cell string that will be fed into the cell.fill_cells() function
+    # Ex: (assign net1 = net2;) => (ECL_INV ecl_buf_assign_x(.IN (net2), .INV(net1_bar));) 
+    buffers = []
+
+    for i, assign_tuple in enumerate(assign_list):
+        cell_str = "ECL_INV ecl_buf_assign_{}(.IN ({}), .INV ({}));".format(i, assign_tuple[1], invert_net(assign_tuple[0]))
+        buffers.append(cell_str)
+
+    return buffers
 
 def create_special_cells() -> list:
     global total_gates
@@ -703,7 +717,8 @@ def write_module_2(file_name, lines: list):
             new_line = parse_io_and_wires(element)
             group_io.append(new_line)            
         elif element.startswith("assign"):
-            group_assign.append((element))
+            #group_assign.append((element))
+            group_assign.append(parse_assign(element))
             pass
         elif element.startswith("wire"):
             group_wire.append(element)
@@ -717,26 +732,33 @@ def write_module_2(file_name, lines: list):
         else: #we found another cell instance?
             pass
     
-    assign_list = get_assign_compliments(group_assign) # need to run get_assign_compliments before creating the special cells
+    #assign_list = get_assign_compliments(group_assign) # need to run get_assign_compliments before creating the special cells
+    assign_list = replace_assigns(group_assign)
+    for cell_inst in assign_list:
+        print(cell_inst)
+        c1 = cell()
+        c1.fill_cell(cell_inst)
+        cell_list.append(c1)
+
     special_cells = create_special_cells()
 
     group_wire.append("wire {};".format(", ".join(special_cells[2])))
     
-    for pair in assign_list:
-        if pair[1].endswith("'b0"):
-            # pair[1] = "Lo_{}".format(int(ti_lo_cnt/config["tie_cell_fanout"]))
-            # pair = (pair[0], "Lo_{}".format(int(ti_lo_cnt/config["tie_cell_fanout"])))
-            # assign_list.append("assign {} = {}".format(pair[0], pair[1]))
-            # assign_list.append("assign {} = {}".format(invert_net(pair[0]), invert_net(pair[1])))            
-            assign_lines.append("assign {} = Lo_{};".format(pair[0], int(ti_lo_cnt/config["tie_cell_fanout"])))
-            ti_lo_cnt += 1
-        elif pair[1].endswith("'b1"):
-            # pair[1] = "Hi_{}".format(int(ti_hi_cnt/config["tie_cell_fanout"]))
-            # pair = (pair[0], "Hi_{}".format(int(ti_hi_cnt/config["tie_cell_fanout"])))
-            assign_lines.append("assign {} = Hi_{};".format(pair[0], int(ti_hi_cnt/config["tie_cell_fanout"])))
-            ti_hi_cnt += 1
-        else:
-            assign_lines.append("assign {} = {};".format(pair[0], pair[1]))
+    # for pair in assign_list:
+    #     if pair[1].endswith("'b0"):
+    #         # pair[1] = "Lo_{}".format(int(ti_lo_cnt/config["tie_cell_fanout"]))
+    #         # pair = (pair[0], "Lo_{}".format(int(ti_lo_cnt/config["tie_cell_fanout"])))
+    #         # assign_list.append("assign {} = {}".format(pair[0], pair[1]))
+    #         # assign_list.append("assign {} = {}".format(invert_net(pair[0]), invert_net(pair[1])))            
+    #         assign_lines.append("assign {} = Lo_{};".format(pair[0], int(ti_lo_cnt/config["tie_cell_fanout"])))
+    #         ti_lo_cnt += 1
+    #     elif pair[1].endswith("'b1"):
+    #         # pair[1] = "Hi_{}".format(int(ti_hi_cnt/config["tie_cell_fanout"]))
+    #         # pair = (pair[0], "Hi_{}".format(int(ti_hi_cnt/config["tie_cell_fanout"])))
+    #         assign_lines.append("assign {} = Hi_{};".format(pair[0], int(ti_hi_cnt/config["tie_cell_fanout"])))
+    #         ti_hi_cnt += 1
+    #     else:
+    #         assign_lines.append("assign {} = {};".format(pair[0], pair[1]))
 
     for i, inst in enumerate(cell_list):
         inst.cell_ports["CUR"] = "CUR_{}".format(int((i+special_cells[1])/config["reference_cell_fanout"]))
